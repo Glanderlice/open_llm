@@ -39,7 +39,8 @@ def train_lora():
     device = auto_device()
     # model_path = 'D:/PycharmProjects/llama3_proj/models/Meta-Llama-3-8B-Instruct'
     model_path = "D:/PycharmProjects/LLM_Project/huanhuan_chat/models/LLM-Research/Meta-Llama-3-8B-Instruct"
-    tokenizer = AutoTokenizer.from_pretrained(model_path)  # 这个从modelscope下载的llama3与HF不太一样
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
     tokenizer.pad_token = tokenizer.eos_token
 
     preprocess = get_processor(tokenizer, shift=True)
@@ -71,32 +72,30 @@ def train_lora():
         lr=1e-4,
         weight_decay=0.0
     )
+
     iterator = iter(train_dataloader)
+
     for step in range(400):
         # 训练部分:training process
         t_start = time.time()
-
         model.train()  # 切换成训练模式：影响normalization, dropout等机制
-
         optimizer.zero_grad()  # 梯度清零
-
-        loss_accum = 0.0
 
         batch = next(iterator)
         x = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
         y = batch['labels'].to(device)
-        x, y = x.to(device), y.to(device)
-        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):  # 混合精度计算
             logits, loss = model(x, y, attention_mask)
+
         loss_accum = loss.detach().item()
 
         loss.backward()  # 反向传播：loss backward之前退出autocasting context
 
-        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # 梯度模控制
 
-        # 学习率动态调整：每个step都动态计算当前step的学习率
-        lr = get_lr(step, max_lr=1e-4)
+        lr = get_lr(step, max_lr=1e-4)  # 学习率动态调整：每个step都动态计算当前step的学习率
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr  # 动态调整优化器中各参数组的学习率
 
@@ -112,6 +111,7 @@ def train_lora():
         print(
             f"step {step}, loss: {loss_accum}, lr: {lr}, norm: {norm}, dt: {dt * 1000:.2f}ms")
 
+        # 生成预览
         if step % 20 == 0:
             model.eval()
             dialogs = [[
@@ -135,6 +135,7 @@ def train_lora():
                     print(outputs)
                     output_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
                     print(f"Model output:\n{output_text}")
+
 
 def train_batch():
     device = auto_device()
@@ -164,7 +165,8 @@ def train_batch():
     print(batch)
 
     model = LlamaTransformer.from_pretrained('llama-3-8B', local_path=model_path, torch_type=torch.bfloat16).to('cuda')
-    add_lora(model, r=16, alpha=16, target=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    add_lora(model, r=16, alpha=16,
+             target=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
              dropout_p=0.05)
 
     optimizer = torch.optim.AdamW(
